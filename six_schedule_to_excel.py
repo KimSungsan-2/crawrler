@@ -17,7 +17,13 @@ SEASON_ID = None     # performance_season ID (None이면 자동 조회)
 PLACE_ID = None      # performance_place ID (None이면 자동 조회)
 
 PLACES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "places.json")
-BASE_URL = "https://podor.co.kr/admin/performance"
+# crawrling.py CONFIG와 동일: 카테고리별 어드민 경로 (공연장 목록은 뮤지컬/연극 공용)
+CATEGORIES = {
+    "musical": {"base": "https://podor.co.kr/admin/performance", "open": "/performance_open/",
+                "schedule": "/performanceschedule/", "season": "/performance_season/"},
+    "play": {"base": "https://podor.co.kr/admin/plays", "open": "/play_open/",
+             "schedule": "/playschedule/", "season": "/play_season/"},
+}
 PLACE_URL = "https://podor.co.kr/admin/performance/performance_place/"
 
 CASTING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "casting")
@@ -29,8 +35,9 @@ def load_casting(show):
         return [l.strip() for l in f if l.strip() and not l.startswith("#")]
 
 
-def fetch_admin_ids(keyword=SEARCH_KEYWORD):
+def fetch_admin_ids(keyword=SEARCH_KEYWORD, category="musical"):
     """포도알 어드민에서 (시작 id, 시즌 id, 공연장 id)를 조회한다. crawrling.py와 같은 방식."""
+    c = CATEGORIES[category]
     from selenium import webdriver
     from selenium.webdriver.common.by import By
     from selenium.webdriver.common.keys import Keys
@@ -61,19 +68,19 @@ def fetch_admin_ids(keyword=SEARCH_KEYWORD):
         time.sleep(2)
 
         # 1) 스케줄 목록 최신 id + 1
-        driver.get(f"{BASE_URL}/performanceschedule/")
+        driver.get(c["base"] + c["schedule"])
         row = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, first_row)))
         last_id = int(row.find_element(By.CSS_SELECTOR, "th.field-id, td.field-id").text.strip())
 
         # 2) 티켓오픈 목록에서 공연 검색 -> 시즌 id (cells[1]=공연명, cells[2]=시즌 id)
-        driver.get(f"{BASE_URL}/performance_open/?q={keyword}")
+        driver.get(f'{c["base"]}{c["open"]}?q={keyword}')
         row = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, first_row)))
         cells = row.find_elements(By.CSS_SELECTOR, "td, th")
         title, season_id = cells[1].text.strip(), cells[2].text.strip()
         print(f"공연: {title} / 시즌 id: {season_id}")
 
         # 3) 시즌 -> 공연장명(td[4]) -> 공연장 id
-        driver.get(f"{BASE_URL}/performance_season/?q={season_id}")
+        driver.get(f'{c["base"]}{c["season"]}?q={season_id}')
         row = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, first_row)))
         place_name = row.find_elements(By.TAG_NAME, "td")[4].text.strip()
         driver.get(f"{PLACE_URL}?q={place_name}")
@@ -121,6 +128,7 @@ if __name__ == "__main__":
     ap.add_argument("--season-id", type=int, default=SEASON_ID)
     ap.add_argument("--place-id", type=int, default=PLACE_ID)
     ap.add_argument("--place", help="공연장명 (places.json에서 id 조회)")
+    ap.add_argument("--category", choices=CATEGORIES, default="musical")
     ap.add_argument("--keyword", default=SEARCH_KEYWORD)
     ap.add_argument("--offline", action="store_true", help="어드민 조회 없이 빈 칸으로 생성")
     a = ap.parse_args()
@@ -129,9 +137,9 @@ if __name__ == "__main__":
         a.place_id = place_id_from_name(a.place)
     ids = (a.start_id, a.season_id, a.place_id)
     if not a.offline and None in ids:
-        fetched = fetch_admin_ids(a.keyword)
+        fetched = fetch_admin_ids(a.keyword, a.category)
         ids = tuple(g if g is not None else f for g, f in zip(ids, fetched))
 
-    out = f"podoal_musical_{a.show}.xlsx"
+    out = f"podoal_{a.category}_{a.show}.xlsx"
     pd.DataFrame(build_rows(a.show, *ids, after=a.after)).to_excel(out, index=False)
     print("saved", out, "(id/시즌/공연장:", ids, ")")
