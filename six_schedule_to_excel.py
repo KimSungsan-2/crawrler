@@ -1,4 +1,4 @@
-"""SIX 더 뮤지컬 캐스팅표 -> 포도알 스케줄 엑셀 양식 변환.
+"""캐스팅표(casting/*.txt) -> 포도알 스케줄 엑셀 양식 변환. 예: python six_schedule_to_excel.py janhok --after 2026-11-01
 
 양식은 crawrling.py 가 만드는 뮤지컬 스케줄 파일과 동일하다.
     id | 시즌 | 공연장명 | 날짜 | 시간(HH:MM:00) | 배우([a,b,c,d,e,f])
@@ -20,26 +20,13 @@ PLACES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "places.j
 BASE_URL = "https://podor.co.kr/admin/performance"
 PLACE_URL = "https://podor.co.kr/admin/performance/performance_place/"
 
-# 배우 순서: 아라곤, 불린, 시모어, 클레페, 하워드, 파
-CASTING = """
-12-15 20:00 손승연 배수정 한재아 김지선 김려원 유주혜
-12-16 20:00 장보람 김지우 이보람 최현선 효정 주다온
-12-17 20:00 손승연 김지우 이보람 최현선 김려원 유주혜
-12-18 17:00 장보람 배수정 한재아 김지선 효정 주다온
-12-18 20:30 손승연 배수정 한재아 최현선 효정 주다온
-12-19 17:00 장보람 김지우 이보람 김지선 김려원 유주혜
-12-19 20:30 장보람 김지우 이보람 김지선 효정 주다온
-12-20 15:00 손승연 배수정 한재아 최현선 김려원 주다온
-12-22 20:00 장보람 김지우 이보람 최현선 김려원 유주혜
-12-23 20:00 손승연 배수정 한재아 김지선 효정 주다온
-12-24 17:00 장보람 김지우 한재아 김지선 효정 유주혜
-12-24 20:30 손승연 김지우 한재아 김지선 김려원 주다온
-12-25 17:00 손승연 배수정 이보람 최현선 효정 유주혜
-12-25 20:30 장보람 배수정 이보람 김지선 효정 유주혜
-12-26 17:00 장보람 김지우 한재아 최현선 김려원 주다온
-12-26 20:30 손승연 배수정 한재아 최현선 김려원 유주혜
-12-27 15:00 장보람 김지우 이보람 김지선 효정 주다온
-"""
+CASTING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "casting")
+
+
+def load_casting(show):
+    """casting/<show>.txt: '# 주석' 또는 'MM-DD HH:MM 배우1 배우2 ...' 형식."""
+    with open(os.path.join(CASTING_DIR, f"{show}.txt"), encoding="utf-8") as f:
+        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
 
 
 def fetch_admin_ids(keyword=SEARCH_KEYWORD):
@@ -110,11 +97,11 @@ def place_id_from_name(name):
     raise SystemExit(f"공연장 '{name}' 일치 항목 {len(hits)}개: {hits[:10]}")
 
 
-def build_rows(start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID):
+def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None):
     rows = []
-    for i, line in enumerate(l for l in CASTING.strip().splitlines() if l.strip()):
+    lines = [l for l in load_casting(show) if after is None or f"{YEAR}-{l.split()[0]}" > after]
+    for i, line in enumerate(lines):
         md, t, *actors = line.split()
-        assert len(actors) == 6, line
         rows.append({
             "id": start_id + i if start_id is not None else None,
             "시즌": season_id,
@@ -128,6 +115,8 @@ def build_rows(start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    ap.add_argument("show", help="casting/<show>.txt 이름 (예: six, janhok)")
+    ap.add_argument("--after", help="YYYY-MM-DD 이후 날짜만 (어드민에 이미 있는 날짜 제외)")
     ap.add_argument("--start-id", type=int, default=START_ID)
     ap.add_argument("--season-id", type=int, default=SEASON_ID)
     ap.add_argument("--place-id", type=int, default=PLACE_ID)
@@ -143,6 +132,6 @@ if __name__ == "__main__":
         fetched = fetch_admin_ids(a.keyword)
         ids = tuple(g if g is not None else f for g, f in zip(ids, fetched))
 
-    out = "podoal_musical_SIX.xlsx"
-    pd.DataFrame(build_rows(*ids)).to_excel(out, index=False)
+    out = f"podoal_musical_{a.show}.xlsx"
+    pd.DataFrame(build_rows(a.show, *ids, after=a.after)).to_excel(out, index=False)
     print("saved", out, "(id/시즌/공연장:", ids, ")")
