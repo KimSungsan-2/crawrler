@@ -4,6 +4,7 @@
     id | 시즌 | 공연장명 | 날짜 | 시간(HH:MM:00) | 배우([a,b,c,d,e,f])
 """
 import argparse
+import json
 import os
 import time
 
@@ -15,6 +16,7 @@ START_ID = None      # 어드민 스케줄 목록 최신 ID + 1 (None이면 어�
 SEASON_ID = None     # performance_season ID (None이면 자동 조회)
 PLACE_ID = None      # performance_place ID (None이면 자동 조회)
 
+PLACES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "places.json")
 BASE_URL = "https://podor.co.kr/admin/performance"
 PLACE_URL = "https://podor.co.kr/admin/performance/performance_place/"
 
@@ -96,6 +98,18 @@ def fetch_admin_ids(keyword=SEARCH_KEYWORD):
         driver.quit()
 
 
+def place_id_from_name(name):
+    """places.json(공연장명 -> id)에서 공연장 id를 찾는다. 부분 일치는 후보가 하나일 때만 허용."""
+    with open(PLACES_FILE, encoding="utf-8") as f:
+        places = json.load(f)
+    if name in places:
+        return places[name]
+    hits = [n for n in places if name in n]
+    if len(hits) == 1:
+        return places[hits[0]]
+    raise SystemExit(f"공연장 '{name}' 일치 항목 {len(hits)}개: {hits[:10]}")
+
+
 def build_rows(start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID):
     rows = []
     for i, line in enumerate(l for l in CASTING.strip().splitlines() if l.strip()):
@@ -117,10 +131,13 @@ if __name__ == "__main__":
     ap.add_argument("--start-id", type=int, default=START_ID)
     ap.add_argument("--season-id", type=int, default=SEASON_ID)
     ap.add_argument("--place-id", type=int, default=PLACE_ID)
+    ap.add_argument("--place", help="공연장명 (places.json에서 id 조회)")
     ap.add_argument("--keyword", default=SEARCH_KEYWORD)
     ap.add_argument("--offline", action="store_true", help="어드민 조회 없이 빈 칸으로 생성")
     a = ap.parse_args()
 
+    if a.place and a.place_id is None:
+        a.place_id = place_id_from_name(a.place)
     ids = (a.start_id, a.season_id, a.place_id)
     if not a.offline and None in ids:
         fetched = fetch_admin_ids(a.keyword)
