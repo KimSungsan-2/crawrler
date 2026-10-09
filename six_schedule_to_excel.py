@@ -104,6 +104,31 @@ def place_id_from_name(name):
     raise SystemExit(f"공연장 '{name}' 일치 항목 {len(hits)}개: {hits[:10]}")
 
 
+def status_text(show, season_id, existing_xlsx):
+    """복사용 상태 문구를 돌려준다.
+
+    - 캡처의 모든 회차가 어드민에 같은 캐스팅으로 이미 있으면 '최신화 필요'
+    - 어드민에 없는 회차가 있으면 캐스팅표의 마지막 날짜로 '2026-mm-dd 반영'
+    - 같은 날짜·시간인데 캐스팅이 다른 행은 별도로 알려준다(문구 판정에는 '있음'으로 취급하지 않음).
+    """
+    df = pd.read_excel(existing_xlsx)
+    df = df[df["시즌"] == season_id]
+    admin = {(str(r["날짜"])[:10], str(r["시간"])[:5]): str(r["배우"]).replace(" ", "")
+             for _, r in df.iterrows()}
+    new, diff, last = 0, [], None
+    for line in load_casting(show):
+        md, t, *actors = line.split()
+        key = (f"{YEAR}-{md}", t)
+        last = key[0]
+        cast = "[" + ",".join(actors) + "]"
+        if key not in admin:
+            new += 1
+        elif admin[key] != cast:
+            diff.append(key)
+    text = f"{last} 반영" if new else "최신화 필요"
+    return text, new, diff
+
+
 def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None):
     rows = []
     lines = [l for l in load_casting(show) if after is None or f"{YEAR}-{l.split()[0]}" > after]
@@ -129,6 +154,7 @@ if __name__ == "__main__":
     ap.add_argument("--place-id", type=int, default=PLACE_ID)
     ap.add_argument("--place", help="공연장명 (places.json에서 id 조회)")
     ap.add_argument("--category", choices=CATEGORIES, default="musical")
+    ap.add_argument("--existing", help="어드민 스케줄 내보내기 xlsx (상태 문구 판정용, --season-id 필요)")
     ap.add_argument("--keyword", default=SEARCH_KEYWORD)
     ap.add_argument("--offline", action="store_true", help="어드민 조회 없이 빈 칸으로 생성")
     a = ap.parse_args()
@@ -139,6 +165,14 @@ if __name__ == "__main__":
     if not a.offline and None in ids:
         fetched = fetch_admin_ids(a.keyword, a.category)
         ids = tuple(g if g is not None else f for g, f in zip(ids, fetched))
+
+    if a.existing:
+        text, new, diff = status_text(a.show, ids[1], a.existing)
+        print(f"[상태] {text}   (신규 {new}회차)")
+        for k in diff:
+            print("  ! 어드민과 캐스팅이 다른 회차:", k)
+        if not new:
+            raise SystemExit(0)   # 올릴 행이 없으면 엑셀을 만들지 않는다
 
     out = f"podoal_{a.category}_{a.show}.xlsx"
     pd.DataFrame(build_rows(a.show, *ids, after=a.after)).to_excel(out, index=False)
