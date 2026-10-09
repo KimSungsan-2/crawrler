@@ -107,7 +107,7 @@ def place_id_from_name(name):
 def status_text(show, season_id, existing_xlsx):
     """복사용 상태 문구를 돌려준다.
 
-    - 캡처의 모든 회차가 어드민에 같은 캐스팅으로 이미 있으면 '최신화 필요'
+    - 캡처의 모든 회차가 어드민에 같은 캐스팅으로 이미 있으면 '최신화 필요_현:어드민 마지막 등록일'
     - 어드민에 없는 회차가 있으면 캐스팅표의 마지막 날짜로 '2026-mm-dd 반영'
     - 같은 날짜·시간인데 캐스팅이 다른 행은 별도로 알려준다(문구 판정에는 '있음'으로 취급하지 않음).
     """
@@ -125,7 +125,8 @@ def status_text(show, season_id, existing_xlsx):
             new += 1
         elif admin[key] != cast:
             diff.append(key)
-    text = f"{last} 반영" if new else "최신화 필요"
+    admin_last = max((d for d, _ in admin), default=None)   # 어드민에 등록된 마지막 날짜
+    text = f"{last} 반영" if new else f"최신화 필요_현:{admin_last}"
     return text, new, diff
 
 
