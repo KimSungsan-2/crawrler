@@ -121,7 +121,7 @@ def status_text(show, season_id, existing_xlsx, actors=None):
     df = df[df["시즌"] == season_id]
     admin = {(str(r["날짜"])[:10], str(r["시간"])[:5]): str(r["배우"]).replace(" ", "")
              for _, r in df.iterrows()}
-    new, diff, last = 0, [], None
+    new, diff, last, missing = 0, [], None, []
     for line in load_casting(show, actors):
         md, t, *names = line.split()
         key = (f"{YEAR}-{md}", t)
@@ -129,16 +129,19 @@ def status_text(show, season_id, existing_xlsx, actors=None):
         cast = "[" + ",".join(names) + "]"
         if key not in admin:
             new += 1
+            missing.append(key)
         elif admin[key] != cast:
             diff.append(key)
     admin_last = max((d for d, _ in admin), default=None)   # 어드민에 등록된 마지막 날짜
     text = f"{last} 반영" if new else f"최신화 필요_현:{admin_last}"
-    return text, new, diff
+    return text, new, diff, missing
 
 
-def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None, max_actors=None):
+def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None, max_actors=None, only=None):
     rows = []
     lines = [l for l in load_casting(show, max_actors) if after is None or f"{YEAR}-{l.split()[0]}" > after]
+    if only is not None:   # (날짜, 시간) 키 집합: 어드민에 없는 회차만
+        lines = [l for l in lines if (f"{YEAR}-{l.split()[0]}", l.split()[1]) in only]
     for i, line in enumerate(lines):
         md, t, *actors = line.split()
         rows.append({
@@ -162,6 +165,7 @@ if __name__ == "__main__":
     ap.add_argument("--place", help="공연장명 (places.json에서 id 조회)")
     ap.add_argument("--category", choices=CATEGORIES, default="musical")
     ap.add_argument("--existing", help="어드민 스케줄 내보내기 xlsx (상태 문구 판정용, --season-id 필요)")
+    ap.add_argument("--missing-only", action="store_true", help="--existing 기준으로 어드민에 없는 회차만 포함 (중간 누락분 포함, --after 대신 사용)")
     ap.add_argument("--actors", type=int, help="배우 앞의 N명만 사용 (어드민 기존 행이 일부 열만 등록한 경우)")
     ap.add_argument("--keyword", default=SEARCH_KEYWORD)
     ap.add_argument("--offline", action="store_true", help="어드민 조회 없이 빈 칸으로 생성")
@@ -175,7 +179,7 @@ if __name__ == "__main__":
         ids = tuple(g if g is not None else f for g, f in zip(ids, fetched))
 
     if a.existing:
-        text, new, diff = status_text(a.show, ids[1], a.existing, a.actors)
+        text, new, diff, missing = status_text(a.show, ids[1], a.existing, a.actors)
         print(f"[상태] {text}   (신규 {new}회차)")
         for k in diff:
             print("  ! 어드민과 캐스팅이 다른 회차:", k)
@@ -183,5 +187,6 @@ if __name__ == "__main__":
             raise SystemExit(0)   # 올릴 행이 없으면 엑셀을 만들지 않는다
 
     out = f"podoal_{a.category}_{a.show}.xlsx"
-    pd.DataFrame(build_rows(a.show, *ids, after=a.after, max_actors=a.actors)).to_excel(out, index=False)
+    pd.DataFrame(build_rows(a.show, *ids, after=a.after, max_actors=a.actors,
+                                 only=set(missing) if (a.existing and a.missing_only) else None)).to_excel(out, index=False)
     print("saved", out, "(id/시즌/공연장:", ids, ")")
