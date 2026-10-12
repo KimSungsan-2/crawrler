@@ -29,10 +29,16 @@ PLACE_URL = "https://podor.co.kr/admin/performance/performance_place/"
 CASTING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "casting")
 
 
-def load_casting(show):
-    """casting/<show>.txt: '# 주석' 또는 'MM-DD HH:MM 배우1 배우2 ...' 형식."""
+def load_casting(show, actors=None):
+    """casting/<show>.txt: '# 주석' 또는 'MM-DD HH:MM 배우1 배우2 ...' 형식.
+
+    actors를 주면 앞의 N명만 남긴다(어드민이 일부 열만 등록하는 공연용).
+    """
     with open(os.path.join(CASTING_DIR, f"{show}.txt"), encoding="utf-8") as f:
-        return [l.strip() for l in f if l.strip() and not l.startswith("#")]
+        lines = [l.strip() for l in f if l.strip() and not l.startswith("#")]
+    if actors:
+        lines = [" ".join(l.split()[:2 + actors]) for l in lines]
+    return lines
 
 
 def fetch_admin_ids(keyword=SEARCH_KEYWORD, category="musical"):
@@ -104,7 +110,7 @@ def place_id_from_name(name):
     raise SystemExit(f"공연장 '{name}' 일치 항목 {len(hits)}개: {hits[:10]}")
 
 
-def status_text(show, season_id, existing_xlsx):
+def status_text(show, season_id, existing_xlsx, actors=None):
     """복사용 상태 문구를 돌려준다.
 
     - 캡처의 모든 회차가 어드민에 같은 캐스팅으로 이미 있으면 '최신화 필요_현:어드민 마지막 등록일'
@@ -116,11 +122,11 @@ def status_text(show, season_id, existing_xlsx):
     admin = {(str(r["날짜"])[:10], str(r["시간"])[:5]): str(r["배우"]).replace(" ", "")
              for _, r in df.iterrows()}
     new, diff, last = 0, [], None
-    for line in load_casting(show):
-        md, t, *actors = line.split()
+    for line in load_casting(show, actors):
+        md, t, *names = line.split()
         key = (f"{YEAR}-{md}", t)
         last = key[0]
-        cast = "[" + ",".join(actors) + "]"
+        cast = "[" + ",".join(names) + "]"
         if key not in admin:
             new += 1
         elif admin[key] != cast:
@@ -130,9 +136,9 @@ def status_text(show, season_id, existing_xlsx):
     return text, new, diff
 
 
-def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None):
+def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None, max_actors=None):
     rows = []
-    lines = [l for l in load_casting(show) if after is None or f"{YEAR}-{l.split()[0]}" > after]
+    lines = [l for l in load_casting(show, max_actors) if after is None or f"{YEAR}-{l.split()[0]}" > after]
     for i, line in enumerate(lines):
         md, t, *actors = line.split()
         rows.append({
@@ -156,6 +162,7 @@ if __name__ == "__main__":
     ap.add_argument("--place", help="공연장명 (places.json에서 id 조회)")
     ap.add_argument("--category", choices=CATEGORIES, default="musical")
     ap.add_argument("--existing", help="어드민 스케줄 내보내기 xlsx (상태 문구 판정용, --season-id 필요)")
+    ap.add_argument("--actors", type=int, help="배우 앞의 N명만 사용 (어드민 기존 행이 일부 열만 등록한 경우)")
     ap.add_argument("--keyword", default=SEARCH_KEYWORD)
     ap.add_argument("--offline", action="store_true", help="어드민 조회 없이 빈 칸으로 생성")
     a = ap.parse_args()
@@ -168,7 +175,7 @@ if __name__ == "__main__":
         ids = tuple(g if g is not None else f for g, f in zip(ids, fetched))
 
     if a.existing:
-        text, new, diff = status_text(a.show, ids[1], a.existing)
+        text, new, diff = status_text(a.show, ids[1], a.existing, a.actors)
         print(f"[상태] {text}   (신규 {new}회차)")
         for k in diff:
             print("  ! 어드민과 캐스팅이 다른 회차:", k)
@@ -176,5 +183,5 @@ if __name__ == "__main__":
             raise SystemExit(0)   # 올릴 행이 없으면 엑셀을 만들지 않는다
 
     out = f"podoal_{a.category}_{a.show}.xlsx"
-    pd.DataFrame(build_rows(a.show, *ids, after=a.after)).to_excel(out, index=False)
+    pd.DataFrame(build_rows(a.show, *ids, after=a.after, max_actors=a.actors)).to_excel(out, index=False)
     print("saved", out, "(id/시즌/공연장:", ids, ")")
