@@ -29,6 +29,11 @@ PLACE_URL = "https://podor.co.kr/admin/performance/performance_place/"
 CASTING_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "casting")
 
 
+def full_date(md):
+    """'MM-DD'는 YEAR년, 'YYYY-MM-DD'는 그대로. 연말~연초에 걸친 공연용."""
+    return md if len(md) > 5 else f"{YEAR}-{md}"
+
+
 def load_casting(show, actors=None):
     """casting/<show>.txt: '# 주석' 또는 'MM-DD HH:MM 배우1 배우2 ...' 형식.
 
@@ -124,7 +129,7 @@ def status_text(show, season_id, existing_xlsx, actors=None):
     new, diff, last, missing = 0, [], None, []
     for line in load_casting(show, actors):
         md, t, *names = line.split()
-        key = (f"{YEAR}-{md}", t)
+        key = (full_date(md), t)
         last = key[0]
         cast = "[" + ",".join(names) + "]"
         if key not in admin:
@@ -139,16 +144,16 @@ def status_text(show, season_id, existing_xlsx, actors=None):
 
 def build_rows(show, start_id=START_ID, season_id=SEASON_ID, place_id=PLACE_ID, after=None, max_actors=None, only=None):
     rows = []
-    lines = [l for l in load_casting(show, max_actors) if after is None or f"{YEAR}-{l.split()[0]}" > after]
+    lines = [l for l in load_casting(show, max_actors) if after is None or full_date(l.split()[0]) > after]
     if only is not None:   # (날짜, 시간) 키 집합: 어드민에 없는 회차만
-        lines = [l for l in lines if (f"{YEAR}-{l.split()[0]}", l.split()[1]) in only]
+        lines = [l for l in lines if (full_date(l.split()[0]), l.split()[1]) in only]
     for i, line in enumerate(lines):
         md, t, *actors = line.split()
         rows.append({
             "id": start_id + i if start_id is not None else None,
             "시즌": season_id,
             "공연장명": place_id,
-            "날짜": f"{YEAR}-{md}",
+            "날짜": full_date(md),
             "시간": f"{t}:00",
             "배우": "[" + ",".join(actors) + "]",
         })
